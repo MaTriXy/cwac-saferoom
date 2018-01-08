@@ -18,18 +18,16 @@ import android.arch.persistence.db.SimpleSQLiteQuery;
 import android.arch.persistence.db.SupportSQLiteDatabase;
 import android.arch.persistence.db.SupportSQLiteQuery;
 import android.arch.persistence.db.SupportSQLiteStatement;
-import android.arch.persistence.room.RoomSQLiteQuery;
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.SQLException;
 import android.database.sqlite.SQLiteTransactionListener;
 import android.os.CancellationSignal;
+import android.text.Editable;
 import android.util.Pair;
 import net.sqlcipher.database.SQLiteCursor;
 import net.sqlcipher.database.SQLiteCursorDriver;
 import net.sqlcipher.database.SQLiteQuery;
-import java.io.IOException;
-import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Locale;
 
@@ -38,6 +36,9 @@ import java.util.Locale;
  * for Android implementation of SQLiteDatabase
  */
 class Database implements SupportSQLiteDatabase {
+  private static final String[] CONFLICT_VALUES = new String[]
+    {"", " OR ROLLBACK ", " OR ABORT ", " OR FAIL ", " OR IGNORE ", " OR REPLACE "};
+
   private final net.sqlcipher.database.SQLiteDatabase safeDb;
 
   Database(net.sqlcipher.database.SQLiteDatabase safeDb) {
@@ -116,7 +117,11 @@ class Database implements SupportSQLiteDatabase {
    */
   @Override
   public boolean inTransaction() {
-    return(safeDb.inTransaction());
+    if (safeDb.isOpen()) {
+      return(safeDb.inTransaction());
+    }
+
+    throw new IllegalStateException("You should not be doing this on a closed database");
   }
 
   /**
@@ -124,7 +129,11 @@ class Database implements SupportSQLiteDatabase {
    */
   @Override
   public boolean isDbLockedByCurrentThread() {
-    return(safeDb.isDbLockedByCurrentThread());
+    if (safeDb.isOpen()) {
+      return(safeDb.isDbLockedByCurrentThread());
+    }
+
+    throw new IllegalStateException("You should not be doing this on a closed database");
   }
 
   /**
@@ -132,7 +141,11 @@ class Database implements SupportSQLiteDatabase {
    */
   @Override
   public boolean yieldIfContendedSafely() {
-    return(safeDb.yieldIfContendedSafely());
+    if (safeDb.isOpen()) {
+      return(safeDb.yieldIfContendedSafely());
+    }
+
+    throw new IllegalStateException("You should not be doing this on a closed database");
   }
 
   /**
@@ -140,7 +153,11 @@ class Database implements SupportSQLiteDatabase {
    */
   @Override
   public boolean yieldIfContendedSafely(long sleepAfterYieldDelay) {
-    return(safeDb.yieldIfContendedSafely(sleepAfterYieldDelay));
+    if (safeDb.isOpen()) {
+      return(safeDb.yieldIfContendedSafely(sleepAfterYieldDelay));
+    }
+
+    throw new IllegalStateException("You should not be doing this on a closed database");
   }
 
   /**
@@ -221,30 +238,9 @@ class Database implements SupportSQLiteDatabase {
   @Override
   public Cursor query(final SupportSQLiteQuery supportQuery,
                       CancellationSignal signal) {
-    int count=0;
+    BindingsRecorder hack=new BindingsRecorder();
 
-    try {
-      if (supportQuery instanceof RoomSQLiteQuery) {
-        Field argCount = RoomSQLiteQuery.class.getDeclaredField("mArgCount");
-        argCount.setAccessible(true);
-        count = argCount.getInt(supportQuery);
-      }
-      else if (supportQuery instanceof SimpleSQLiteQuery) {
-        Field bindArgs = SimpleSQLiteQuery.class.getDeclaredField("mBindArgs");
-        bindArgs.setAccessible(true);
-        Object[] bindArgsValue = (Object[]) bindArgs.get(supportQuery);
-        count = bindArgsValue!=null?bindArgsValue.length:0;
-      }
-    }
-    catch (Exception e) {
-      throw new IllegalStateException("Um, ick", e);
-    }
-
-    String[] fakeArgs=new String[count];
-
-    for (int i=0;i<count;i++) {
-      fakeArgs[i]="";
-    }
+    supportQuery.bindTo(hack);
 
     return(safeDb.rawQueryWithFactory(
       new net.sqlcipher.database.SQLiteDatabase.CursorFactory() {
@@ -256,7 +252,7 @@ class Database implements SupportSQLiteDatabase {
           supportQuery.bindTo(new Program(query));
           return new SQLiteCursor(db, masterQuery, editTable, query);
         }
-      }, supportQuery.getSql(), fakeArgs, null));
+      }, supportQuery.getSql(), hack.getBindings(), null));
   }
 
   /**
@@ -271,9 +267,27 @@ class Database implements SupportSQLiteDatabase {
   /**
    * {@inheritDoc}
    */
+  @SuppressWarnings("ThrowFromFinallyBlock")
   @Override
   public int delete(String table, String whereClause, Object[] whereArgs) {
-    return(safeDb.delete(table, whereClause, stringify(whereArgs)));
+    String query = "DELETE FROM " + table
+      + (isEmpty(whereClause) ? "" : " WHERE " + whereClause);
+    SupportSQLiteStatement statement = compileStatement(query);
+
+    try {
+      SimpleSQLiteQuery.bind(statement, whereArgs);
+      return statement.executeUpdateDelete();
+    }
+    finally {
+      try {
+        statement.close();
+      }
+      catch (Exception e) {
+        throw new RuntimeException("Exception attempting to close statement", e);
+      }
+    }
+
+//    return(safeDb.delete(table, whereClause, stringify(whereArgs)));
   }
 
   /**
@@ -282,8 +296,50 @@ class Database implements SupportSQLiteDatabase {
   @Override
   public int update(String table, int conflictAlgorithm, ContentValues values,
                     String whereClause, Object[] whereArgs) {
-    return(safeDb.updateWithOnConflict(table, values, whereClause,
-      stringify(whereArgs), conflictAlgorithm));
+    // taken from SQLiteDatabase class.
+    if (values == null || values.size() == 0) {
+      throw new IllegalArgumentException("Empty values");
+    }
+    StringBuilder sql = new StringBuilder(120);
+    sql.append("UPDATE ");
+    sql.append(CONFLICT_VALUES[conflictAlgorithm]);
+    sql.append(table);
+    sql.append(" SET ");
+
+    // move all bind args to one array
+    int setValuesSize = values.size();
+    int bindArgsSize = (whereArgs == null) ? setValuesSize : (setValuesSize + whereArgs.length);
+    Object[] bindArgs = new Object[bindArgsSize];
+    int i = 0;
+    for (String colName : values.keySet()) {
+      sql.append((i > 0) ? "," : "");
+      sql.append(colName);
+      bindArgs[i++] = values.get(colName);
+      sql.append("=?");
+    }
+    if (whereArgs != null) {
+      for (i = setValuesSize; i < bindArgsSize; i++) {
+        bindArgs[i] = whereArgs[i - setValuesSize];
+      }
+    }
+    if (!isEmpty(whereClause)) {
+      sql.append(" WHERE ");
+      sql.append(whereClause);
+    }
+    SupportSQLiteStatement statement = compileStatement(sql.toString());
+
+    try {
+      SimpleSQLiteQuery.bind(statement, bindArgs);
+      return statement.executeUpdateDelete();
+    }
+    finally {
+      try {
+        statement.close();
+      }
+      catch (Exception e) {
+        throw new RuntimeException("Exception attempting to close statement", e);
+      }
+    }
   }
 
   /**
@@ -427,13 +483,37 @@ class Database implements SupportSQLiteDatabase {
     safeDb.close();
   }
 
-  private String[] stringify(Object[] params) {
-    String[] result=new String[params.length];
+  /**
+   * Changes the passphrase associated with this database. The
+   * char[] is *not* cleared by this method -- please zero it
+   * out if you are done with it.
+   *
+   * @param passphrase the new passphrase to use
+   */
+  public void rekey(char[] passphrase) {
+    safeDb.changePassword(passphrase);
+  }
 
-    for (int i=0;i<params.length;i++) {
-      result[i]=params[i].toString();
+  /**
+   * Changes the passphrase associated with this database. The supplied
+   * Editable is cleared as part of this operation.
+   *
+   * @param editor source of passphrase, presumably from a user
+   */
+  public void rekey(Editable editor) {
+    char[] passphrase=new char[editor.length()];
+
+    editor.getChars(0, editor.length(), passphrase, 0);
+
+    try {
+      rekey(passphrase);
     }
+    finally {
+      editor.clear();
+    }
+  }
 
-    return(result);
+  private static boolean isEmpty(String input) {
+    return input == null || input.length() == 0;
   }
 }
