@@ -14,47 +14,48 @@
 
 package com.commonsware.cwac.saferoom.test.room.simple;
 
-import android.arch.persistence.room.Database;
-import android.arch.persistence.room.Room;
-import android.arch.persistence.room.RoomDatabase;
-import android.arch.persistence.room.TypeConverters;
 import android.content.Context;
 import android.text.SpannableStringBuilder;
+
 import com.commonsware.cwac.saferoom.SafeHelperFactory;
 
+import androidx.room.Database;
+import androidx.room.Room;
+import androidx.room.RoomDatabase;
+import androidx.room.TypeConverters;
+
 @Database(
-  entities={Customer.class, VersionedThingy.class, Category.class},
-  version=1
+        entities = {Customer.class, VersionedThingy.class, Category.class},
+        version = 1
 )
 @TypeConverters({TypeTransmogrifier.class})
 abstract class StuffDatabase extends RoomDatabase {
-  abstract StuffStore stuffStore();
+    abstract StuffStore stuffStore();
 
-  static final String DB_NAME="stuff.db";
-  private static volatile StuffDatabase INSTANCE=null;
+    static final String DB_NAME = "stuff.db";
+    private static volatile StuffDatabase INSTANCE = null;
 
-  synchronized static StuffDatabase get(Context ctxt) {
-    if (INSTANCE==null) {
-      INSTANCE=create(ctxt, false);
+    synchronized static StuffDatabase get(Context ctxt) {
+        if (INSTANCE == null) {
+            INSTANCE = create(ctxt, false);
+        }
+
+        return (INSTANCE);
     }
 
-    return(INSTANCE);
-  }
+    static StuffDatabase create(Context ctxt, boolean memoryOnly) {
+        RoomDatabase.Builder<StuffDatabase> b;
 
-  static StuffDatabase create(Context ctxt, boolean memoryOnly) {
-    RoomDatabase.Builder<StuffDatabase> b;
+        if (memoryOnly) {
+            b = Room.inMemoryDatabaseBuilder(ctxt.getApplicationContext(),
+                    StuffDatabase.class);
+        } else {
+            b = Room.databaseBuilder(ctxt.getApplicationContext(), StuffDatabase.class,
+                    DB_NAME);
+        }
 
-    if (memoryOnly) {
-      b=Room.inMemoryDatabaseBuilder(ctxt.getApplicationContext(),
-        StuffDatabase.class);
+        b.openHelperFactory(SafeHelperFactory.fromUser(new SpannableStringBuilder("sekrit")));
+
+        return (b.build());
     }
-    else {
-      b=Room.databaseBuilder(ctxt.getApplicationContext(), StuffDatabase.class,
-        DB_NAME);
-    }
-
-    b.openHelperFactory(SafeHelperFactory.fromUser(new SpannableStringBuilder("sekrit")));
-
-    return(b.build());
-  }
 }

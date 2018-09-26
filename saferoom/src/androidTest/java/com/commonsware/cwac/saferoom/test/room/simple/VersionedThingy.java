@@ -14,30 +14,33 @@
 
 package com.commonsware.cwac.saferoom.test.room.simple;
 
-import android.arch.persistence.room.ColumnInfo;
-import android.arch.persistence.room.Entity;
-import android.arch.persistence.room.Ignore;
 import android.support.annotation.NonNull;
+
 import java.util.UUID;
 
-@Entity(tableName="thingy", primaryKeys={"id", "version_code"})
+import androidx.room.ColumnInfo;
+import androidx.room.Entity;
+import androidx.room.Ignore;
+
+@Entity(tableName = "thingy", primaryKeys = {"id", "version_code"})
 class VersionedThingy {
-  @NonNull public final String id;
+    @NonNull
+    public final String id;
 
-  @ColumnInfo(name="version_code")
-  @NonNull
-  public final int versionCode;
+    @ColumnInfo(name = "version_code")
+    @NonNull
+    public final int versionCode;
 
-  @Ignore
-  private String something;
+    @Ignore
+    private String something;
 
-  @Ignore
-  VersionedThingy() {
-    this(UUID.randomUUID().toString(), 1);
-  }
+    @Ignore
+    VersionedThingy() {
+        this(UUID.randomUUID().toString(), 1);
+    }
 
-  VersionedThingy(String id, int versionCode) {
-    this.id=id;
-    this.versionCode=versionCode;
-  }
+    VersionedThingy(String id, int versionCode) {
+        this.id = id;
+        this.versionCode = versionCode;
+    }
 }

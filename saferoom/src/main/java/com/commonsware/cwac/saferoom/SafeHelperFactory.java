@@ -14,111 +14,109 @@
 
 package com.commonsware.cwac.saferoom;
 
-import android.arch.persistence.db.SupportSQLiteDatabase;
-import android.arch.persistence.db.SupportSQLiteOpenHelper;
 import android.content.Context;
 import android.text.Editable;
+
+import androidx.sqlite.db.SupportSQLiteDatabase;
+import androidx.sqlite.db.SupportSQLiteOpenHelper;
 
 /**
  * SupportSQLiteOpenHelper.Factory implementation, for use with Room
  * and similar libraries, that supports SQLCipher for Android.
  */
 public class SafeHelperFactory implements SupportSQLiteOpenHelper.Factory {
-  final private char[] passphrase;
+    final private char[] passphrase;
 
-  /**
-   * Creates a SafeHelperFactory from an Editable, such as what you get by
-   * calling getText() on an EditText.
-   *
-   * The Editable will be cleared as part of this call.
-   *
-   * @param editor the user's supplied passphrase
-   * @return a SafeHelperFactory
-   */
-  public static SafeHelperFactory fromUser(Editable editor) {
-    char[] passphrase=new char[editor.length()];
-    SafeHelperFactory result;
+    /**
+     * Creates a SafeHelperFactory from an Editable, such as what you get by
+     * calling getText() on an EditText.
+     * <p>
+     * The Editable will be cleared as part of this call.
+     *
+     * @param editor the user's supplied passphrase
+     * @return a SafeHelperFactory
+     */
+    public static SafeHelperFactory fromUser(Editable editor) {
+        char[] passphrase = new char[editor.length()];
+        SafeHelperFactory result;
 
-    editor.getChars(0, editor.length(), passphrase, 0);
+        editor.getChars(0, editor.length(), passphrase, 0);
 
-    try {
-      result=new SafeHelperFactory(passphrase);
+        try {
+            result = new SafeHelperFactory(passphrase);
+        } finally {
+            editor.clear();
+        }
+
+        return (result);
     }
-    finally {
-      editor.clear();
+
+    /**
+     * Changes the passphrase associated with this database. The
+     * char[] is *not* cleared by this method -- please zero it
+     * out if you are done with it.
+     * <p>
+     * This will not encrypt an unencrypted database. Please use the
+     * encrypt() method for that.
+     *
+     * @param db         the database to rekey
+     * @param passphrase the new passphrase to use
+     */
+    public static void rekey(SupportSQLiteDatabase db, char[] passphrase) {
+        if (db instanceof Database) {
+            ((Database) db).rekey(passphrase);
+        } else {
+            throw new IllegalArgumentException("Database is not from CWAC-SafeRoom");
+        }
     }
 
-    return(result);
-  }
-
-  /**
-   * Changes the passphrase associated with this database. The
-   * char[] is *not* cleared by this method -- please zero it
-   * out if you are done with it.
-   *
-   * This will not encrypt an unencrypted database. Please use the
-   * encrypt() method for that.
-   *
-   * @param db the database to rekey
-   * @param passphrase the new passphrase to use
-   */
-  public static void rekey(SupportSQLiteDatabase db, char[] passphrase) {
-    if (db instanceof Database) {
-      ((Database)db).rekey(passphrase);
+    /**
+     * Changes the passphrase associated with this database. The supplied
+     * Editable is cleared as part of this operation.
+     * <p>
+     * This will not encrypt an unencrypted database. Please use the
+     * encrypt() method for that.
+     *
+     * @param db     the database to rekey
+     * @param editor source of passphrase, presumably from a user
+     */
+    public static void rekey(SupportSQLiteDatabase db, Editable editor) {
+        if (db instanceof Database) {
+            ((Database) db).rekey(editor);
+        } else {
+            throw new IllegalArgumentException("Database is not from CWAC-SafeRoom");
+        }
     }
-    else {
-      throw new IllegalArgumentException("Database is not from CWAC-SafeRoom");
+
+    /**
+     * Standard constructor.
+     * <p>
+     * Note that the passphrase supplied here will be filled in with zeros after
+     * the database is opened. Ideally, you should not create additional copies
+     * of this passphrase, particularly as String objects.
+     * <p>
+     * If you are using an EditText to collect the passphrase from the user,
+     * call getText() on the EditText, and pass that Editable to the
+     * SafeHelperFactory.fromUser() factory method.
+     *
+     * @param passphrase user-supplied passphrase to use for the database
+     */
+    public SafeHelperFactory(char[] passphrase) {
+        this.passphrase = passphrase;
     }
-  }
 
-  /**
-   * Changes the passphrase associated with this database. The supplied
-   * Editable is cleared as part of this operation.
-   *
-   * This will not encrypt an unencrypted database. Please use the
-   * encrypt() method for that.
-   *
-   * @param db the database to rekey
-   * @param editor source of passphrase, presumably from a user
-   */
-  public static void rekey(SupportSQLiteDatabase db, Editable editor) {
-    if (db instanceof Database) {
-      ((Database)db).rekey(editor);
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public SupportSQLiteOpenHelper create(
+            SupportSQLiteOpenHelper.Configuration configuration) {
+        return (create(configuration.context, configuration.name,
+                configuration.callback.version, configuration.callback));
     }
-    else {
-      throw new IllegalArgumentException("Database is not from CWAC-SafeRoom");
+
+    public SupportSQLiteOpenHelper create(Context context, String name, int version,
+                                          SupportSQLiteOpenHelper.Callback callback) {
+        return (new Helper(context, name, version, callback, passphrase));
     }
-  }
-
-  /**
-   * Standard constructor.
-   *
-   * Note that the passphrase supplied here will be filled in with zeros after
-   * the database is opened. Ideally, you should not create additional copies
-   * of this passphrase, particularly as String objects.
-   *
-   * If you are using an EditText to collect the passphrase from the user,
-   * call getText() on the EditText, and pass that Editable to the
-   * SafeHelperFactory.fromUser() factory method.
-   *
-   * @param passphrase user-supplied passphrase to use for the database
-   */
-  public SafeHelperFactory(char[] passphrase) {
-    this.passphrase=passphrase;
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public SupportSQLiteOpenHelper create(
-    SupportSQLiteOpenHelper.Configuration configuration) {
-    return(create(configuration.context, configuration.name,
-      configuration.callback.version, configuration.callback));
-  }
-
-  public SupportSQLiteOpenHelper create(Context context, String name, int version,
-                                        SupportSQLiteOpenHelper.Callback callback) {
-    return(new Helper(context, name, version, callback, passphrase));
-  }
 }

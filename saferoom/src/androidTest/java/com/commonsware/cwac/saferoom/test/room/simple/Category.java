@@ -14,43 +14,46 @@
 
 package com.commonsware.cwac.saferoom.test.room.simple;
 
-import android.arch.persistence.room.Entity;
-import android.arch.persistence.room.ForeignKey;
-import android.arch.persistence.room.Ignore;
-import android.arch.persistence.room.Index;
-import android.arch.persistence.room.PrimaryKey;
 import android.support.annotation.NonNull;
+
 import java.util.UUID;
-import static android.arch.persistence.room.ForeignKey.CASCADE;
+
+import androidx.room.Entity;
+import androidx.room.ForeignKey;
+import androidx.room.Ignore;
+import androidx.room.Index;
+import androidx.room.PrimaryKey;
+
+import static androidx.room.ForeignKey.CASCADE;
 
 @Entity(
-  tableName="categories",
-  foreignKeys=@ForeignKey(
-    entity=Category.class,
-    parentColumns="id",
-    childColumns="parentId",
-    onDelete=CASCADE),
-  indices=@Index(value="parentId"))
+        tableName = "categories",
+        foreignKeys = @ForeignKey(
+                entity = Category.class,
+                parentColumns = "id",
+                childColumns = "parentId",
+                onDelete = CASCADE),
+        indices = @Index(value = "parentId"))
 class Category {
-  @PrimaryKey
-  @NonNull
-  public final String id;
-  public final String title;
-  public final String parentId;
+    @PrimaryKey
+    @NonNull
+    public final String id;
+    public final String title;
+    public final String parentId;
 
-  @Ignore
-  Category(String title) {
-    this(title, null);
-  }
+    @Ignore
+    Category(String title) {
+        this(title, null);
+    }
 
-  @Ignore
-  public Category(String title, String parentId) {
-    this(UUID.randomUUID().toString(), title, parentId);
-  }
+    @Ignore
+    public Category(String title, String parentId) {
+        this(UUID.randomUUID().toString(), title, parentId);
+    }
 
-  public Category(@NonNull String id, String title, String parentId) {
-    this.id=id;
-    this.title=title;
-    this.parentId=parentId;
-  }
+    public Category(@NonNull String id, String title, String parentId) {
+        this.id = id;
+        this.title = title;
+        this.parentId = parentId;
+    }
 }

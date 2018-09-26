@@ -14,14 +14,15 @@
 
 package com.commonsware.cwac.saferoom.test.room.simple;
 
-import android.arch.persistence.room.Relation;
 import java.util.List;
 
-public class CategoryShadow extends Category {
-  public CategoryShadow(String id, String title, String parentId) {
-    super(id, title, parentId);
-  }
+import androidx.room.Relation;
 
-  @Relation(parentColumn="id", entityColumn="parentId")
-  public List<Category> children;
+public class CategoryShadow extends Category {
+    public CategoryShadow(String id, String title, String parentId) {
+        super(id, title, parentId);
+    }
+
+    @Relation(parentColumn = "id", entityColumn = "parentId")
+    public List<Category> children;
 }

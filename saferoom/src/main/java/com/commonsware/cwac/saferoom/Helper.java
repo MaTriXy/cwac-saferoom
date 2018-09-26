@@ -17,49 +17,50 @@
 
 package com.commonsware.cwac.saferoom;
 
-import android.arch.persistence.db.SupportSQLiteDatabase;
-import android.arch.persistence.db.SupportSQLiteOpenHelper;
 import android.content.Context;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+
 import net.sqlcipher.database.SQLiteDatabase;
 import net.sqlcipher.database.SQLiteOpenHelper;
-import java.io.IOException;
+
+import androidx.annotation.RequiresApi;
+import androidx.sqlite.db.SupportSQLiteDatabase;
+import androidx.sqlite.db.SupportSQLiteOpenHelper;
 
 /**
  * SupportSQLiteOpenHelper implementation that works with SQLCipher for Android
  */
 class Helper implements SupportSQLiteOpenHelper {
-  private final OpenHelper delegate;
-  private final char[] passphrase;
-  private final String name;
+    private final OpenHelper delegate;
+    private final char[] passphrase;
+    private final String name;
 
-  Helper(Context context, String name, int version,
-         SupportSQLiteOpenHelper.Callback callback, char[] passphrase) {
-    SQLiteDatabase.loadLibs(context);
-    delegate=createDelegate(context, name, version, callback);
-    this.passphrase=passphrase;
-    this.name=name;
-  }
+    Helper(Context context, String name, int version,
+           SupportSQLiteOpenHelper.Callback callback, char[] passphrase) {
+        SQLiteDatabase.loadLibs(context);
+        delegate = createDelegate(context, name, version, callback);
+        this.passphrase = passphrase;
+        this.name = name;
+    }
 
-  private OpenHelper createDelegate(Context context, String name,
-                                    int version, final Callback callback) {
-    return(new OpenHelper(context, name, version) {
-      /**
-       * {@inheritDoc}
-       */
-      @Override
-      public void onCreate(SQLiteDatabase db) {
-        callback.onCreate(getWrappedDb(db));
-      }
+    private OpenHelper createDelegate(Context context, String name,
+                                      int version, final Callback callback) {
+        return (new OpenHelper(context, name, version) {
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            public void onCreate(SQLiteDatabase db) {
+                callback.onCreate(getWrappedDb(db));
+            }
 
-      /**
-       * {@inheritDoc}
-       */
-      @Override
-      public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        callback.onUpgrade(getWrappedDb(db), oldVersion, newVersion);
-      }
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+                callback.onUpgrade(getWrappedDb(db), oldVersion, newVersion);
+            }
 
 /* MLM -- these methods do not exist in SQLCipher for Android
       @Override
@@ -73,143 +74,142 @@ class Helper implements SupportSQLiteOpenHelper {
       }
 */
 
-      /**
-       * {@inheritDoc}
-       */
-      @Override
-      public void onOpen(SQLiteDatabase db) {
-        callback.onOpen(getWrappedDb(db));
-      }
-    });
-  }
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            public void onOpen(SQLiteDatabase db) {
+                callback.onOpen(getWrappedDb(db));
+            }
+        });
+    }
 
-  /**
-   * {@inheritDoc}
-   *
-   * NOTE: Not presently supported, will throw an UnsupportedOperationException
-   */
-  @Override
-  public String getDatabaseName() {
-    return name;
-    // TODO not supported in SQLCipher for Android
+    /**
+     * {@inheritDoc}
+     * <p>
+     * NOTE: Not presently supported, will throw an UnsupportedOperationException
+     */
+    @Override
+    public String getDatabaseName() {
+        return name;
+        // TODO not supported in SQLCipher for Android
 //    throw new UnsupportedOperationException("I kinna do it, cap'n!");
 //    return delegate.getDatabaseName();
-  }
-
-  /**
-   * {@inheritDoc}
-   *
-   * NOTE: Not presently supported, will throw an UnsupportedOperationException
-   */
-  @Override
-  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN)
-  public void setWriteAheadLoggingEnabled(boolean enabled) {
-    // throw new UnsupportedOperationException("I kinna do it, cap'n!");
-    delegate.setWriteAheadLoggingEnabled(enabled);
-  }
-
-  /**
-   * {@inheritDoc}
-   *
-   * NOTE: this implementation zeros out the passphrase after opening the
-   * database
-   */
-  @Override
-  public SupportSQLiteDatabase getWritableDatabase() {
-    SupportSQLiteDatabase result=
-      delegate.getWritableSupportDatabase(passphrase);
-
-    for (int i=0;i<passphrase.length;i++) {
-      passphrase[i]=(char)0;
     }
 
-    return(result);
-  }
-
-  /**
-   * {@inheritDoc}
-   *
-   * NOTE: this implementation delegates to getWritableDatabase(), to ensure
-   * that we only need the passphrase once
-   */
-  @Override
-  public SupportSQLiteDatabase getReadableDatabase() {
-    //return delegate.getReadableSupportDatabase();
-    return(getWritableDatabase());
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void close() {
-    delegate.close();
-  }
-
-  abstract static class OpenHelper extends SQLiteOpenHelper {
-    private volatile Database wrappedDb;
-    private Boolean walEnabled;
-
-    OpenHelper(Context context, String name, int version) {
-      super(context, name, null, version, null);
+    /**
+     * {@inheritDoc}
+     * <p>
+     * NOTE: Not presently supported, will throw an UnsupportedOperationException
+     */
+    @Override
+    @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN)
+    public void setWriteAheadLoggingEnabled(boolean enabled) {
+        // throw new UnsupportedOperationException("I kinna do it, cap'n!");
+        delegate.setWriteAheadLoggingEnabled(enabled);
     }
 
-    SupportSQLiteDatabase getWritableSupportDatabase(char[] passphrase) {
-      SQLiteDatabase db=super.getWritableDatabase(passphrase);
-      SupportSQLiteDatabase result=getWrappedDb(db);
+    /**
+     * {@inheritDoc}
+     * <p>
+     * NOTE: this implementation zeros out the passphrase after opening the
+     * database
+     */
+    @Override
+    public SupportSQLiteDatabase getWritableDatabase() {
+        SupportSQLiteDatabase result =
+                delegate.getWritableSupportDatabase(passphrase);
 
-      if (walEnabled!=null) {
-        setupWAL(wrappedDb);
-      }
-
-      return result;
-    }
-
-    Database getWrappedDb(SQLiteDatabase db) {
-      if (wrappedDb==null) {
-        synchronized (this) {
-          if (wrappedDb==null) {
-            wrappedDb = new Database(db);
-
-            if (walEnabled != null && !db.inTransaction()) {
-              setupWAL(wrappedDb);
-            }
-          }
-        }
-      }
-
-      return(wrappedDb);
-    }
-
-    private void setupWAL(Database db) {
-      if (!db.isReadOnly()) {
-        if (walEnabled) {
-          db.enableWriteAheadLogging();
-        }
-        else {
-          db.disableWriteAheadLogging();
+        for (int i = 0; i < passphrase.length; i++) {
+            passphrase[i] = (char) 0;
         }
 
-        walEnabled=null;
-      }
+        return (result);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * NOTE: this implementation delegates to getWritableDatabase(), to ensure
+     * that we only need the passphrase once
+     */
+    @Override
+    public SupportSQLiteDatabase getReadableDatabase() {
+        //return delegate.getReadableSupportDatabase();
+        return (getWritableDatabase());
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public synchronized void close() {
-      super.close();
-      wrappedDb.close();
-      wrappedDb=null;
+    public void close() {
+        delegate.close();
     }
 
-    void setWriteAheadLoggingEnabled(boolean writeAheadLoggingEnabled) {
-      walEnabled=writeAheadLoggingEnabled;
+    abstract static class OpenHelper extends SQLiteOpenHelper {
+        private volatile Database wrappedDb;
+        private Boolean walEnabled;
 
-      if (wrappedDb!=null) {
-        setupWAL(wrappedDb);
-      }
+        OpenHelper(Context context, String name, int version) {
+            super(context, name, null, version, null);
+        }
+
+        SupportSQLiteDatabase getWritableSupportDatabase(char[] passphrase) {
+            SQLiteDatabase db = super.getWritableDatabase(passphrase);
+            SupportSQLiteDatabase result = getWrappedDb(db);
+
+            if (walEnabled != null) {
+                setupWAL(wrappedDb);
+            }
+
+            return result;
+        }
+
+        Database getWrappedDb(SQLiteDatabase db) {
+            if (wrappedDb == null) {
+                synchronized (this) {
+                    if (wrappedDb == null) {
+                        wrappedDb = new Database(db);
+
+                        if (walEnabled != null && !db.inTransaction()) {
+                            setupWAL(wrappedDb);
+                        }
+                    }
+                }
+            }
+
+            return (wrappedDb);
+        }
+
+        private void setupWAL(Database db) {
+            if (!db.isReadOnly()) {
+                if (walEnabled) {
+                    db.enableWriteAheadLogging();
+                } else {
+                    db.disableWriteAheadLogging();
+                }
+
+                walEnabled = null;
+            }
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public synchronized void close() {
+            super.close();
+            wrappedDb.close();
+            wrappedDb = null;
+        }
+
+        void setWriteAheadLoggingEnabled(boolean writeAheadLoggingEnabled) {
+            walEnabled = writeAheadLoggingEnabled;
+
+            if (wrappedDb != null) {
+                setupWAL(wrappedDb);
+            }
+        }
     }
-  }
 }
