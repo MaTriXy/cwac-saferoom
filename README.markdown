@@ -14,7 +14,7 @@ applications just yet.
 This Android library project is 
 [available as a JAR](https://github.com/commonsguy/cwac-saferoom/releases)
 or as an artifact for use with Gradle. To use the artifact, add the following
-blocks to your `build.gradle` file:
+blocks to your module's `build.gradle` file:
 
 ```groovy
 repositories {
@@ -24,7 +24,7 @@ repositories {
 }
 
 dependencies {
-    implementation "com.commonsware.cwac:saferoom:0.3.1"
+    implementation "com.commonsware.cwac:saferoom:0.4.4"
 }
 ```
 
@@ -123,6 +123,14 @@ option listed above for that.
 The `Editable` will be cleared as part of this work, but the `char[]` will
 not be zero'd out. Please clear that array as soon as you are done with it.
 
+### Decrypting Existing Databases
+
+You can call `decrypt()` on `SQLCipherUtils` to decrypt an existing
+SQLCipher-encrypted database. Supply the `Context`, the `File` pointing
+to the database, and a `char[]` with the passphrase. `decrypt()` will
+replace the encrypted database with a decrypted one, so that database can
+be opened using ordinary SQLite.
+
 ## Dependencies
 
 As one might expect, this project depends on SQLCipher for Android.
@@ -132,6 +140,9 @@ the support database API that Room uses. This project, as of 0.1.0,
 does not depend upon Room itself, as not all clients of the support database
 API will be using Room. You need to add your own dependencies upon Room
 or other database APIs if you want to use them.
+
+Presently, CWAC-SafeRoom works with `1.1.1` of the support database API
+from the Architecture Components (`android.arch.persistence:db`).
 
 ## Tests
 
@@ -146,7 +157,7 @@ to it, etc.
 
 ## Version
 
-This is version v0.3.1 of this module, meaning that it is slowly gaining steam.
+This is version v0.4.4 of this module, meaning that it is slowly gaining steam.
 
 (note: no actual steam is used in this library)
 
@@ -203,6 +214,14 @@ of guidance here.
 
 ## Release Notes
 
+- v0.4.4: addressed [thread-safety issue](https://github.com/commonsguy/cwac-saferoom/issues/27)
+- v0.4.3: bumped `android.arch.persistence:db` dependency to `1.1.1`
+- v0.4.2: fixed [edge case WAL issue](https://github.com/commonsguy/cwac-saferoom/issues/23)
+- v0.4.1: added Room-specific tests, fixed [WAL issue](https://github.com/commonsguy/cwac-saferoom/issues/17)
+- v0.4.0: updated to `1.1.0` of the support database API
+- v0.3.4: changed non-WAL journal mode to TRUNCATE
+- v0.3.3: added WAL support, with an assist from [plackemacher](https://github.com/commonsguy/cwac-saferoom/pull/20)
+- v0.3.2: added `decrypt()` utility method
 - v0.3.1: changed `rekey()` to use the existing `changePassword()`
 - v0.3.0: added `rekey()`, upgraded to SQLCipher for Android 3.5.9, replaced tests
 - v0.2.1: added temporary implementation of `getDatabaseName()` to `Helper`
