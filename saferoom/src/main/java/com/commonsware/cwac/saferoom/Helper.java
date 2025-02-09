@@ -17,110 +17,95 @@
 
 package com.commonsware.cwac.saferoom;
 
-import android.arch.persistence.db.SupportSQLiteDatabase;
-import android.arch.persistence.db.SupportSQLiteOpenHelper;
 import android.content.Context;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import net.sqlcipher.DatabaseErrorHandler;
 import net.sqlcipher.database.SQLiteDatabase;
+import net.sqlcipher.database.SQLiteDatabaseHook;
+import net.sqlcipher.database.SQLiteException;
 import net.sqlcipher.database.SQLiteOpenHelper;
-import java.io.IOException;
+import androidx.annotation.RequiresApi;
+import androidx.sqlite.db.SupportSQLiteDatabase;
+import androidx.sqlite.db.SupportSQLiteOpenHelper;
 
 /**
  * SupportSQLiteOpenHelper implementation that works with SQLCipher for Android
  */
 class Helper implements SupportSQLiteOpenHelper {
   private final OpenHelper delegate;
-  private final char[] passphrase;
-  private final String name;
+  private final byte[] passphrase;
+  private final boolean clearPassphrase;
 
-  Helper(Context context, String name, int version,
-         SupportSQLiteOpenHelper.Callback callback, char[] passphrase) {
+  Helper(Context context, String name, Callback callback, byte[] passphrase,
+         SafeHelperFactory.Options options) {
     SQLiteDatabase.loadLibs(context);
-    delegate=createDelegate(context, name, version, callback);
+    clearPassphrase=options.clearPassphrase;
+    delegate=createDelegate(context, name, callback, options);
     this.passphrase=passphrase;
-    this.name=name;
   }
 
   private OpenHelper createDelegate(Context context, String name,
-                                    int version, final Callback callback) {
-    return(new OpenHelper(context, name, version) {
-      /**
-       * {@inheritDoc}
-       */
-      @Override
-      public void onCreate(SQLiteDatabase db) {
-        callback.onCreate(getWrappedDb(db));
-      }
+                                    final Callback callback, SafeHelperFactory.Options options) {
+    final Database[] dbRef = new Database[1];
 
-      /**
-       * {@inheritDoc}
-       */
-      @Override
-      public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        callback.onUpgrade(getWrappedDb(db), oldVersion, newVersion);
-      }
-
-/* MLM -- these methods do not exist in SQLCipher for Android
-      @Override
-      public void onConfigure(SQLiteDatabase db) {
-        callback.onConfigure(getWrappedDb(db));
-      }
-
-      @Override
-      public void onDowngrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        callback.onDowngrade(getWrappedDb(db), oldVersion, newVersion);
-      }
-*/
-
-      /**
-       * {@inheritDoc}
-       */
-      @Override
-      public void onOpen(SQLiteDatabase db) {
-        callback.onOpen(getWrappedDb(db));
-      }
-    });
+    return(new OpenHelper(context, name, dbRef, callback, options));
   }
 
   /**
    * {@inheritDoc}
-   *
-   * NOTE: Not presently supported, will throw an UnsupportedOperationException
    */
   @Override
-  public String getDatabaseName() {
-    return name;
-    // TODO not supported in SQLCipher for Android
-//    throw new UnsupportedOperationException("I kinna do it, cap'n!");
-//    return delegate.getDatabaseName();
+  synchronized public String getDatabaseName() {
+    return delegate.getDatabaseName();
   }
 
   /**
    * {@inheritDoc}
-   *
-   * NOTE: Not presently supported, will throw an UnsupportedOperationException
    */
   @Override
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN)
-  public void setWriteAheadLoggingEnabled(boolean enabled) {
-    // throw new UnsupportedOperationException("I kinna do it, cap'n!");
+  synchronized public void setWriteAheadLoggingEnabled(boolean enabled) {
     delegate.setWriteAheadLoggingEnabled(enabled);
   }
 
   /**
    * {@inheritDoc}
    *
-   * NOTE: this implementation zeros out the passphrase after opening the
+   * NOTE: by default, this implementation zeros out the passphrase after opening the
    * database
    */
   @Override
-  public SupportSQLiteDatabase getWritableDatabase() {
-    SupportSQLiteDatabase result=
-      delegate.getWritableSupportDatabase(passphrase);
+  synchronized public SupportSQLiteDatabase getWritableDatabase() {
+    SupportSQLiteDatabase result;
 
-    for (int i=0;i<passphrase.length;i++) {
-      passphrase[i]=(char)0;
+    try {
+      result = delegate.getWritableSupportDatabase(passphrase);
+    }
+    catch (SQLiteException e) {
+      if (passphrase != null) {
+        boolean isCleared = true;
+
+        for (byte b : passphrase) {
+          isCleared = isCleared && (b == (byte) 0);
+        }
+
+        if (isCleared) {
+          throw new IllegalStateException("The passphrase appears to be cleared. This happens by" +
+              "default the first time you use the factory to open a database, so we can remove the" +
+              "cleartext passphrase from memory. If you close the database yourself, please use a" +
+              "fresh SafeHelperFactory to reopen it. If something else (e.g., Room) closed the" +
+              "database, and you cannot control that, use SafeHelperFactory.Options to opt out of" +
+              "the automatic password clearing step. See the project README for more information.");
+        }
+      }
+
+      throw e;
+    }
+
+    if (clearPassphrase && passphrase != null) {
+      for (int i = 0; i < passphrase.length; i++) {
+        passphrase[i] = (byte) 0;
+      }
     }
 
     return(result);
@@ -134,7 +119,6 @@ class Helper implements SupportSQLiteOpenHelper {
    */
   @Override
   public SupportSQLiteDatabase getReadableDatabase() {
-    //return delegate.getReadableSupportDatabase();
     return(getWritableDatabase());
   }
 
@@ -142,55 +126,112 @@ class Helper implements SupportSQLiteOpenHelper {
    * {@inheritDoc}
    */
   @Override
-  public void close() {
+  synchronized public void close() {
     delegate.close();
   }
 
-  abstract static class OpenHelper extends SQLiteOpenHelper {
-    private volatile Database wrappedDb;
-    private Boolean walEnabled;
+  static class OpenHelper extends SQLiteOpenHelper {
+    private final Database[] dbRef;
+    private volatile Callback callback;
+    private volatile boolean migrated;
 
-    OpenHelper(Context context, String name, int version) {
-      super(context, name, null, version, null);
-    }
-
-    SupportSQLiteDatabase getWritableSupportDatabase(char[] passphrase) {
-      SQLiteDatabase db=super.getWritableDatabase(passphrase);
-      SupportSQLiteDatabase result=getWrappedDb(db);
-
-      if (walEnabled!=null) {
-        setupWAL(wrappedDb);
-      }
-
-      return result;
-    }
-
-    Database getWrappedDb(SQLiteDatabase db) {
-      if (wrappedDb==null) {
-        synchronized (this) {
-          if (wrappedDb==null) {
-            wrappedDb = new Database(db);
-
-            if (walEnabled != null && !db.inTransaction()) {
-              setupWAL(wrappedDb);
-            }
+    OpenHelper(Context context, String name, Database[] dbRef, Callback callback,
+               SafeHelperFactory.Options options) {
+      super(context, name, null, callback.version, new SQLiteDatabaseHook() {
+        @Override
+        public void preKey(SQLiteDatabase database) {
+          if (options!=null && options.preKeySql!=null) {
+            database.rawExecSQL(options.preKeySql);
           }
         }
-      }
 
-      return(wrappedDb);
+        @Override
+        public void postKey(SQLiteDatabase database) {
+          if (options!=null && options.postKeySql!=null) {
+            database.rawExecSQL(options.postKeySql);
+          }
+        }
+      }, new DatabaseErrorHandler() {
+        @Override
+        public void onCorruption(SQLiteDatabase dbObj) {
+          Database db = dbRef[0];
+
+          if (db != null) {
+            callback.onCorruption(db);
+          }
+        }
+      });
+
+      this.dbRef = dbRef;
+      this.callback=callback;
     }
 
-    private void setupWAL(Database db) {
-      if (!db.isReadOnly()) {
-        if (walEnabled) {
-          db.enableWriteAheadLogging();
-        }
-        else {
-          db.disableWriteAheadLogging();
-        }
+    synchronized SupportSQLiteDatabase getWritableSupportDatabase(byte[] passphrase) {
+      migrated = false;
 
-        walEnabled=null;
+      SQLiteDatabase db=super.getWritableDatabase(passphrase);
+
+      if (migrated) {
+        close();
+        return getWritableSupportDatabase(passphrase);
+      }
+
+      return getWrappedDb(db);
+    }
+
+    synchronized Database getWrappedDb(SQLiteDatabase db) {
+      Database wrappedDb = dbRef[0];
+
+      if (wrappedDb == null) {
+        wrappedDb = new Database(db);
+        dbRef[0] = wrappedDb;
+      }
+
+      return(dbRef[0]);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void onCreate(SQLiteDatabase sqLiteDatabase) {
+      callback.onCreate(getWrappedDb(sqLiteDatabase));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void onUpgrade(SQLiteDatabase sqLiteDatabase, int oldVersion, int newVersion) {
+      migrated = true;
+      callback.onUpgrade(getWrappedDb(sqLiteDatabase), oldVersion, newVersion);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void onConfigure(SQLiteDatabase db) {
+      callback.onConfigure(getWrappedDb(db));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void onDowngrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+      migrated = true;
+      callback.onDowngrade(getWrappedDb(db), oldVersion, newVersion);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void onOpen(SQLiteDatabase db) {
+      if (!migrated) {
+        // from Google: "if we've migrated, we'll re-open the db so we  should not call the callback."
+        callback.onOpen(getWrappedDb(db));
       }
     }
 
@@ -200,16 +241,7 @@ class Helper implements SupportSQLiteOpenHelper {
     @Override
     public synchronized void close() {
       super.close();
-      wrappedDb.close();
-      wrappedDb=null;
-    }
-
-    void setWriteAheadLoggingEnabled(boolean writeAheadLoggingEnabled) {
-      walEnabled=writeAheadLoggingEnabled;
-
-      if (wrappedDb!=null) {
-        setupWAL(wrappedDb);
-      }
+      dbRef[0] = null;
     }
   }
 }

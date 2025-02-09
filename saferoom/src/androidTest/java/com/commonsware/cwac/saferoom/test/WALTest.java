@@ -1,7 +1,5 @@
 package com.commonsware.cwac.saferoom.test;
 
-import android.arch.persistence.db.SupportSQLiteDatabase;
-import android.arch.persistence.db.SupportSQLiteOpenHelper;
 import android.content.Context;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
@@ -12,6 +10,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import java.io.File;
 import java.io.IOException;
+import androidx.sqlite.db.SupportSQLiteDatabase;
+import androidx.sqlite.db.SupportSQLiteOpenHelper;
 import static junit.framework.Assert.assertFalse;
 import static junit.framework.Assert.assertTrue;
 import static org.junit.Assert.assertEquals;
@@ -36,7 +36,7 @@ public class WALTest {
     SafeHelperFactory factory=
       SafeHelperFactory.fromUser(new SpannableStringBuilder(PASSPHRASE));
     SupportSQLiteOpenHelper helper=
-      factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME, 1,
+      factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME,
         new Callback(1));
     SupportSQLiteDatabase db=helper.getWritableDatabase();
 
@@ -49,7 +49,7 @@ public class WALTest {
 
     factory=SafeHelperFactory.fromUser(new SpannableStringBuilder(PASSPHRASE));
     helper=
-      factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME, 1,
+      factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME,
         new Callback(1));
     db=helper.getWritableDatabase();
 

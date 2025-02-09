@@ -1,7 +1,5 @@
 package com.commonsware.cwac.saferoom.test;
 
-import android.arch.persistence.db.SupportSQLiteDatabase;
-import android.arch.persistence.db.SupportSQLiteOpenHelper;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
@@ -14,7 +12,12 @@ import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.concurrent.Callable;
+
+import androidx.sqlite.db.SupportSQLiteDatabase;
+import androidx.sqlite.db.SupportSQLiteOpenHelper;
 import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertNotNull;
 import static junit.framework.TestCase.assertTrue;
@@ -41,20 +44,45 @@ public class DecryptTest {
   }
 
   @Test
-  public void dekey() throws IOException {
+  public void successfulDekey() throws Exception {
+    final Context ctxt=InstrumentationRegistry.getTargetContext();
+
+    dekey((Callable<Void>) () -> {
+      SQLCipherUtils.decrypt(ctxt, ctxt.getDatabasePath(DB_NAME), PASSPHRASE.toCharArray());
+
+      return null;
+    });
+  }
+
+  @Test(expected = FileNotFoundException.class)
+  public void fileNotFound() throws Exception {
+    final Context ctxt=InstrumentationRegistry.getTargetContext();
+
+    dekey((Callable<Void>) () -> {
+      SQLCipherUtils.decrypt(ctxt, new File("/oh/you/must/be/kidding"), PASSPHRASE.toCharArray());
+
+      return null;
+    });
+  }
+
+  private void dekey(Callable<?> decrypter) throws Exception {
+    final Context ctxt=InstrumentationRegistry.getTargetContext();
+
+    assertEquals(SQLCipherUtils.State.DOES_NOT_EXIST, SQLCipherUtils.getDatabaseState(ctxt, DB_NAME));
+
     SafeHelperFactory factory=
       SafeHelperFactory.fromUser(new SpannableStringBuilder(PASSPHRASE));
     SupportSQLiteOpenHelper helper=
-      factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME, 1,
+      factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME,
         new Callback(1));
     SupportSQLiteDatabase db=helper.getWritableDatabase();
 
     assertOriginalContent(db);
     db.close();
 
-    final Context ctxt=InstrumentationRegistry.getTargetContext();
+    assertEquals(SQLCipherUtils.State.ENCRYPTED, SQLCipherUtils.getDatabaseState(ctxt, DB_NAME));
 
-    SQLCipherUtils.decrypt(ctxt, ctxt.getDatabasePath(DB_NAME), PASSPHRASE.toCharArray());
+    decrypter.call();
 
     SQLiteDatabase plainDb=
       SQLiteDatabase.openDatabase(ctxt.getDatabasePath(DB_NAME).getAbsolutePath(),
@@ -62,6 +90,16 @@ public class DecryptTest {
 
     assertOriginalContent(plainDb);
     plainDb.close();
+
+    assertEquals(SQLCipherUtils.State.UNENCRYPTED, SQLCipherUtils.getDatabaseState(ctxt, DB_NAME));
+
+    factory = new SafeHelperFactory("".toCharArray());
+    helper = factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME, new Callback(1));
+    db = helper.getReadableDatabase();
+
+    assertOriginalContent(db);
+
+    db.close();
   }
 
   private void assertOriginalContent(SupportSQLiteDatabase db) {

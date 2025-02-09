@@ -1,18 +1,19 @@
 package com.commonsware.cwac.saferoom.test;
 
-import android.arch.persistence.db.SupportSQLiteDatabase;
-import android.arch.persistence.db.SupportSQLiteOpenHelper;
 import android.content.Context;
 import android.database.Cursor;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
 import android.text.SpannableStringBuilder;
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory;
 import com.commonsware.cwac.saferoom.SafeHelperFactory;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import java.io.File;
 import java.io.IOException;
+import androidx.sqlite.db.SupportSQLiteDatabase;
+import androidx.sqlite.db.SupportSQLiteOpenHelper;
 import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertNotNull;
 import static junit.framework.TestCase.assertTrue;
@@ -39,11 +40,11 @@ public class RekeyTest {
   }
 
   @Test
-  public void rekey() throws IOException {
+  public void rekeyEditable() throws IOException {
     SafeHelperFactory factory=
       SafeHelperFactory.fromUser(new SpannableStringBuilder("sekrit"));
     SupportSQLiteOpenHelper helper=
-      factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME, 1,
+      factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME,
         new Callback(1));
     SupportSQLiteDatabase db=helper.getWritableDatabase();
 
@@ -55,10 +56,62 @@ public class RekeyTest {
     db.close();
 
     factory=SafeHelperFactory.fromUser(new SpannableStringBuilder(PASSPHRASE));
-    helper=factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME, 1,
+    helper=factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME,
       new Callback(1));
     db=helper.getWritableDatabase();
     assertUpdatedContent(db);
+  }
+
+  @Test
+  public void rekeyCharArray() throws IOException {
+    SafeHelperFactory factory=
+            SafeHelperFactory.fromUser(new SpannableStringBuilder("sekrit"));
+    SupportSQLiteOpenHelper helper=
+            factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME,
+                    new Callback(1));
+    SupportSQLiteDatabase db=helper.getWritableDatabase();
+
+    assertOriginalContent(db);
+    SafeHelperFactory.rekey(db, PASSPHRASE.toCharArray());
+    assertOriginalContent(db);
+    db.execSQL("UPDATE foo SET bar=?, goo=?", new Object[] {3, "four"});
+    assertUpdatedContent(db);
+    db.close();
+
+    factory=SafeHelperFactory.fromUser(new SpannableStringBuilder(PASSPHRASE));
+    helper=factory.create(InstrumentationRegistry.getTargetContext(), DB_NAME,
+            new Callback(1));
+    db=helper.getWritableDatabase();
+    assertUpdatedContent(db);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void rekeyEditableFramework() throws IOException {
+    FrameworkSQLiteOpenHelperFactory factory=new FrameworkSQLiteOpenHelperFactory();
+    SupportSQLiteOpenHelper.Configuration cfg=
+        SupportSQLiteOpenHelper.Configuration.builder(InstrumentationRegistry.getTargetContext())
+            .callback(new Callback(1))
+            .name(DB_NAME)
+            .build();
+    SupportSQLiteOpenHelper helper=factory.create(cfg);
+    SupportSQLiteDatabase db=helper.getWritableDatabase();
+
+    SafeHelperFactory.rekey(db, new SpannableStringBuilder(PASSPHRASE));
+    db.close();
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void rekeyCharArrayFramework() throws IOException {
+    FrameworkSQLiteOpenHelperFactory factory=new FrameworkSQLiteOpenHelperFactory();
+    SupportSQLiteOpenHelper.Configuration cfg=
+        SupportSQLiteOpenHelper.Configuration.builder(InstrumentationRegistry.getTargetContext())
+            .callback(new Callback(1))
+            .name(DB_NAME)
+            .build();
+    SupportSQLiteOpenHelper helper=factory.create(cfg);
+    SupportSQLiteDatabase db=helper.getWritableDatabase();
+
+    SafeHelperFactory.rekey(db, PASSPHRASE.toCharArray());
   }
 
   private void assertOriginalContent(SupportSQLiteDatabase db) {
